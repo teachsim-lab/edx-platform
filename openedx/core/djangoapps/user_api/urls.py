@@ -17,6 +17,7 @@ from .accounts.views import (
     DeactivateLogoutView,
     LMSAccountRetirementView,
     NameChangeView,
+    OAuthUserInfoView,
     UsernameReplacementView, CancelAccountRetirementStatusView
 )
 from . import views as user_api_views
@@ -204,6 +205,7 @@ urlpatterns = [
         r'^v1/forum_roles/(?P<name>[a-zA-Z]+)/users/$',
         user_api_views.ForumRoleUsersListView.as_view()
     ),
+    path("oauth2/userinfo", OAuthUserInfoView.as_view(), name="oauth-userinfo"),
 
     # Moved from user_api/legacy_urls.py
     path('v1/preferences/email_opt_in/', user_api_views.UpdateEmailOptInPreference.as_view(),

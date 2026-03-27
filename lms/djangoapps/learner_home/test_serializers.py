@@ -875,6 +875,7 @@ class TestLearnerEnrollmentsSerializer(LearnerDashboardBaseTest):
     def create_test_context(cls, enrollment):
         """Create context that is expected to be required / common across tests"""
         return {
+            "user": cls.user,
             "resume_course_urls": {enrollment.course.id: random_url()},
             "ecommerce_payment_page": random_url(),
             "course_mode_info": {
@@ -908,6 +909,7 @@ class TestLearnerEnrollmentsSerializer(LearnerDashboardBaseTest):
             "entitlement",
             "programs",
             "credit",
+            "completionSummary",
         ]
 
         # Verify we have all the expected keys in our output
@@ -991,6 +993,7 @@ class TestUnfulfilledEntitlementSerializer(LearnerDashboardBaseTest):
             "certificate",
             "enrollment",
             "credit",
+            "completionSummary",
         ]
 
         assert output_data.keys() == set(expected_keys)
@@ -1296,6 +1299,7 @@ class TestLearnerDashboardSerializer(LearnerDashboardBaseTest):
         )
 
         input_context = {
+            "user": self.user,
             "resume_course_urls": resume_course_urls,
             "ecommerce_payment_page": random_url(),
             "course_mode_info": course_mode_info,

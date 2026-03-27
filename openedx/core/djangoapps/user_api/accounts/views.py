@@ -64,7 +64,11 @@ from openedx.core.djangoapps.user_api import accounts
 from openedx.core.djangoapps.user_api.accounts.image_helpers import get_profile_image_names, set_has_profile_image
 from openedx.core.djangoapps.user_api.accounts.utils import handle_retirement_cancellation
 from openedx.core.djangoapps.user_authn.exceptions import AuthFailedError
-from openedx.core.lib.api.authentication import BearerAuthentication, BearerAuthenticationAllowInactiveUser
+from openedx.core.lib.api.authentication import (
+    BearerAuthentication,
+    BearerAuthenticationAllowInactiveUser,
+    OAuth2AuthenticationAllowInactiveUser
+)
 from openedx.core.lib.api.parsers import MergePatchParser
 
 from ..errors import AccountUpdateError, AccountValidationError, UserNotAuthorized, UserNotFound
@@ -1416,3 +1420,42 @@ class UsernameReplacementView(APIView):
                 new_username,
             )
         return True
+
+
+class OAuthUserInfoView(APIView):
+    """
+    API view for retrieving OAuth user information.
+    """
+    authentication_classes = (
+        OAuth2AuthenticationAllowInactiveUser,
+        BearerAuthenticationAllowInactiveUser,
+        JwtAuthentication,
+        SessionAuthenticationAllowInactiveUser,
+    )
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        """
+        Retrieve OAuth user information for the authenticated user.
+
+        Returns a JSON response containing the user's ID, email, first name, last name, and username.
+
+        :param request: The incoming request object.
+        :return: A JSON response containing the user's information.
+        """
+        user = request.user
+        if user and user.is_authenticated:
+            log.info("OAuthUserInfoView user_id: %s", user.id)
+            log.info("OAuthUserInfoView email: %s", user.email)
+        else:
+            log.warning("OAuthUserInfoView called with unauthenticated user")
+
+        return Response(
+            {
+                "user_id": str(user.id),
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "username": user.username,
+            }
+        )
