@@ -15,6 +15,7 @@ from openedx_filters.learning.filters import CourseEnrollmentAPIRenderStarted, C
 from common.djangoapps.course_modes.models import CourseMode
 from openedx.features.course_experience import course_home_url
 from xmodule.data import CertificatesDisplayBehaviors
+from lms.djangoapps.courseware.courses import get_course_blocks_completion_summary
 from lms.djangoapps.learner_home.utils import course_progress_url
 
 
@@ -459,6 +460,7 @@ class LearnerEnrollmentSerializer(serializers.Serializer):
     gradeData = GradeDataSerializer(source="*")
     programs = serializers.SerializerMethodField()
     credit = serializers.SerializerMethodField()
+    completionSummary = serializers.SerializerMethodField()
 
     def get_entitlement(self, instance):
         """
@@ -490,6 +492,11 @@ class LearnerEnrollmentSerializer(serializers.Serializer):
             return {}
         else:
             return CreditSerializer(credit_status).data
+
+    def get_completionSummary(self, instance):
+        """Get completion summary for the course"""
+        user = self.context.get("user")
+        return get_course_blocks_completion_summary(instance.course_id, user)
 
 
 class UnfulfilledEntitlementSerializer(serializers.Serializer):
@@ -533,6 +540,11 @@ class UnfulfilledEntitlementSerializer(serializers.Serializer):
     certificate = LiteralField(None)
     enrollment = LiteralField(STATIC_ENTITLEMENT_ENROLLMENT_DATA)
     credit = LiteralField({})
+    completionSummary = LiteralField({
+        "complete_count": 0,
+        "incomplete_count": 0,
+        "locked_count": 0
+    })
 
     def _get_course_overview(self, instance):
         """Look up course provider from CourseOverview matching the pseudo session"""
