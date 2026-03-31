@@ -816,6 +816,12 @@ class SequenceBlock(
                 'graded': block.graded,
                 'contains_content_type_gated_content': contains_content_type_gated_content,
             }
+            
+            # Add unit gating information for vertical blocks
+            if block.location.block_type == 'vertical' and hasattr(block, '_get_unit_gated_content_info'):
+                gated_content = block._get_unit_gated_content_info(user, context)
+                block_info['gatedContent'] = gated_content
+                block_info['is_gated'] = gated_content.get('gated', False)
             if not render_blocks:
                 # The item url format can be defined in the template context like so:
                 # context['item_url'] = '/my/item/path/{usage_key}/whatever'

@@ -41,6 +41,31 @@ def evaluate_prerequisite(course, subsection_grade, user):
                 )
 
 
+@gating_api.unit_gating_enabled(default=False)
+def evaluate_unit_prerequisite(course, unit_grade, user):
+    """
+    Evaluates any gating milestone relationships attached to the given
+    unit. If the unit_grade and unit_completion meets
+    the minimum score required by dependent units, the related
+    milestone will be marked fulfilled for the user.
+    """
+    prereq_milestone = gating_api.get_gating_milestone(course.id, unit_grade.location, 'fulfills')
+    if prereq_milestone:
+        gated_content_milestones = defaultdict(list)
+        for milestone in gating_api.find_gating_milestones(course.id, content_key=None, relationship='requires'):
+            gated_content_milestones[milestone['id']].append(milestone)
+
+        gated_content = gated_content_milestones.get(prereq_milestone['id'])
+        if gated_content:
+            grade_percentage = unit_grade.percent_graded * 100.0 \
+                if hasattr(unit_grade, 'percent_graded') else None
+
+            for milestone in gated_content:
+                gating_api.update_milestone(
+                    milestone, unit_grade.location, prereq_milestone, user, grade_percentage
+                )
+
+
 def evaluate_entrance_exam(course_grade, user):
     """
     Evaluates any entrance exam milestone relationships attached

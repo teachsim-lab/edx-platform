@@ -14,16 +14,19 @@ from lxml import etree
 from openedx_filters.learning.filters import VerticalBlockChildRenderStarted, VerticalBlockRenderCompleted
 from web_fragments.fragment import Fragment
 from xblock.core import XBlock  # lint-amnesty, pylint: disable=wrong-import-order
-from xblock.fields import Boolean, Scope
+from xblock.fields import Boolean, Integer, List, Scope, String
 
 from xmodule.mako_block import MakoTemplateBlockBase
 from xmodule.progress import Progress
 from xmodule.seq_block import SequenceFields
 from xmodule.studio_editable import StudioEditableBlock
+from xmodule.modulestore.inheritance import own_metadata
+from common.djangoapps.xblock_django.constants import ATTR_KEY_USER_ID, ATTR_KEY_USER_IS_STAFF
 from xmodule.util.builtin_assets import add_webpack_js_to_fragment
 from xmodule.util.misc import is_xblock_an_assignment
 from xmodule.x_module import PUBLIC_VIEW, STUDENT_VIEW, XModuleFields
 from xmodule.xml_block import XmlMixin
+from openedx.core.lib.gating import api as gating_api
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +49,34 @@ class VerticalFields:
         help=_("Add discussion for the Unit."),
         default=settings.FEATURES.get('IN_CONTEXT_DISCUSSION_ENABLED_DEFAULT', True),
         scope=Scope.settings,
+    )
+
+    is_prereq = Boolean(
+        display_name=_("Make this unit available as a prerequisite to other content"),
+        help=_("Enter true or false. If this value is true, this unit can be used as a prerequisite for other units."),
+        default=False,
+        scope=Scope.settings
+    )
+
+    prereq_usage_key = String(
+        display_name=_("Prerequisite Unit"),
+        help=_("Enter the usage key of the prerequisite unit."),
+        default="",
+        scope=Scope.settings
+    )
+
+    prereq_min_score = Integer(
+        display_name=_("Minimum Score Percentage"),
+        help=_("Enter the minimum score percentage required to access this unit (0-100)."),
+        default=0,
+        scope=Scope.settings
+    )
+
+    prereq_min_completion = Integer(
+        display_name=_("Minimum Completion Percentage"),
+        help=_("Enter the minimum completion percentage required to access this unit (0-100)."),
+        default=0,
+        scope=Scope.settings
     )
 
 
@@ -154,12 +185,16 @@ class VerticalBlock(
         }
 
         if view == STUDENT_VIEW:
+            user_service = self.runtime.service(self, 'user')
+            current_user = user_service.get_current_user()
+            gated_content = self._get_unit_gated_content_info(current_user)
             fragment_context.update({
                 'show_bookmark_button': child_context.get('show_bookmark_button', not is_child_of_vertical),
                 'show_title': child_context.get('show_title', True),
                 'bookmarked': child_context['bookmarked'],
                 'bookmark_id': "{},{}".format(
                     child_context['username'], str(self.location)),  # pylint: disable=no-member
+                'gated_content': gated_content,
             })
 
         mako_service = self.runtime.service(self, 'mako')
@@ -282,6 +317,54 @@ class VerticalBlock(
         # TODO: Remove this when studio better supports editing of pure XBlocks.
         fragment.add_javascript('VerticalBlock = XModule.Descriptor;')
         return fragment
+
+    def _get_course(self):
+        """
+        Return course by course id.
+        """
+        return self.runtime.modulestore.get_course(self.scope_ids.usage_id.context_key)  # pylint: disable=no-member
+
+    def _get_unit_gated_content_info(self, user, context=None):
+        """
+        Returns a dict of information about unit-level gated content
+        """
+        context = context or {}
+        course = self._get_course()
+        if not getattr(course, 'enable_unit_gating', False):
+            return {
+                'gated': False,
+                'prereq_id': None,
+                'prereq_url': None,
+                'prereq_section_name': None,
+                'gated_section_name': self.display_name,
+            }
+
+        # Check if user is staff
+        current_user = self.runtime.service(self, 'user').get_current_user()
+        user_is_staff = current_user.opt_attrs.get(ATTR_KEY_USER_IS_STAFF)
+        
+        prereq_met, prereq_meta_info = gating_api.compute_is_prereq_met(self.location, current_user.opt_attrs.get(ATTR_KEY_USER_ID), recalc_on_unmet=True)
+        
+        gated_content = {
+            'prereq_id': None,
+            'prereq_url': None,
+            'prereq_section_name': None,
+            'gated_section_name': self.display_name,
+        }
+        
+        if not prereq_met:
+            # Check if user is staff. If so, bypass gating.
+            if user_is_staff:
+                gated_content['gated'] = False
+            else:
+                gated_content['gated'] = True
+                gated_content['prereq_url'] = prereq_meta_info['url']
+                gated_content['prereq_section_name'] = prereq_meta_info['display_name']
+                gated_content['prereq_id'] = prereq_meta_info['id']
+        else:
+            gated_content['gated'] = False
+            
+        return gated_content
 
     def index_dictionary(self):
         """

@@ -31,6 +31,7 @@ from openedx.core.lib.xblock_utils import (
 from xmodule.modulestore.django import (
     modulestore,
 )  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.inheritance import own_metadata
 from openedx.core.djangoapps.content_tagging.toggles import is_tagging_feature_disabled
 
 from xmodule.x_module import (
@@ -365,6 +366,7 @@ def xblock_outline_handler(request, usage_key_string):
                     course_outline=True,
                     include_children_predicate=lambda xblock: not xblock.category
                     == "vertical",
+                    metadata=own_metadata(root_xblock),
                 )
             )
     else:
