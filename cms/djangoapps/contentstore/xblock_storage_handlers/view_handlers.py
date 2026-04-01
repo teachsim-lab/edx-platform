@@ -498,6 +498,26 @@ def _save_xblock(
                     prereq_min_completion,
                 )
 
+        # Save unit gating info
+        if xblock.category == "vertical" and getattr(course, 'enable_unit_gating', False):
+            if is_prereq is not None:
+                if is_prereq:
+                    gating_api.add_prerequisite(
+                        xblock.location.course_key, xblock.location
+                    )
+                else:
+                    gating_api.remove_prerequisite(xblock.location)
+                result["is_prereq"] = is_prereq
+
+            if prereq_usage_key is not None:
+                gating_api.set_required_content(
+                    xblock.location.course_key,
+                    xblock.location,
+                    prereq_usage_key,
+                    prereq_min_score,
+                    prereq_min_completion,
+                )
+
         # If publish is set to 'republish' and this item is not in direct only categories and has previously been
         # published, then this item should be republished. This is used by staff locking to ensure that changing the
         # draft value of the staff lock will also update the published version, but only at the unit level.
@@ -939,12 +959,11 @@ def get_block_info(
 
 def _get_gating_info(course, xblock):
     """
-    Returns a dict containing gating information for the given xblock which
-    can be added to xblock info responses.
+    Get gating information for an XBlock.
 
-    Arguments:
-        course (CourseBlock): The course
-        xblock (XBlock): The xblock
+    Args:
+        course: The course object
+        xblock: The XBlock to get gating info for
 
     Returns:
         dict: Gating information
@@ -971,6 +990,31 @@ def _get_gating_info(course, xblock):
         info["prereq_min_completion"] = prereq_min_completion
         if prereq:
             info["visibility_state"] = VisibilityState.gated
+
+    # Unit-level gating
+    if xblock.category == "vertical" and getattr(course, 'enable_unit_gating', False):
+        if not hasattr(course, "unit_gating_prerequisites"):
+            # Cache unit gating prerequisites on course block so that we are not
+            # hitting the database for every xblock in the course
+            course.unit_gating_prerequisites = gating_api.get_unit_prerequisites(course.id)
+        info["is_prereq"] = gating_api.is_prerequisite(course.id, xblock.location)
+        info["prereqs"] = [
+            p
+            for p in course.unit_gating_prerequisites
+            if str(xblock.location) not in p["namespace"]
+            and p.get('block_type') == 'vertical'  # Only show units as prereqs for units
+        ]
+        (
+            prereq,
+            prereq_min_score,
+            prereq_min_completion,
+        ) = gating_api.get_required_content(course.id, xblock.location)
+        info["prereq"] = prereq
+        info["prereq_min_score"] = prereq_min_score
+        info["prereq_min_completion"] = prereq_min_completion
+        if prereq:
+            info["visibility_state"] = VisibilityState.gated
+
     return info
 
 
@@ -1605,6 +1649,7 @@ def _create_xblock_child_info(
                 course=course,
                 is_concise=is_concise,
                 summary_configuration=summary_configuration,
+                metadata=own_metadata(child),
             )
             for child in xblock.get_children()
         ]

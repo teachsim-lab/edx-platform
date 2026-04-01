@@ -100,6 +100,28 @@ def gating_enabled(default=None):
     return wrap
 
 
+def unit_gating_enabled(default=None):
+    """
+    Decorator that checks the enable_unit_gating course flag to
+    see if the unit gating feature is active for a given course.
+    If not, calls to the decorated function return the specified default value.
+
+    Arguments:
+        default (ANY): The value to return if the enable_unit_gating course flag is False
+
+    Returns:
+        ANY: The specified default value if the unit gating feature is off,
+        otherwise the result of the decorated function
+    """
+    def wrap(f):  # pylint: disable=missing-docstring
+        def function_wrapper(course, *args):
+            if not getattr(course, 'enable_unit_gating', False):
+                return default
+            return f(course, *args)
+        return function_wrapper
+    return wrap
+
+
 def find_gating_milestones(course_key, content_key=None, relationship=None, user=None):
     """
     Finds gating milestone dicts related to the given supplied parameters.
@@ -139,8 +161,9 @@ def get_gating_milestone(course_key, content_key, relationship):
 
 def get_prerequisites(course_key):
     """
-    Find all the gating milestones associated with a course and the
+    Find all the gating milestones associated with a course and
     XBlock info associated with those gating milestones.
+    Only includes subsections (sequential blocks), not units (vertical blocks).
 
     Arguments:
         course_key (str|CourseKey): The course key
@@ -160,12 +183,47 @@ def get_prerequisites(course_key):
 
     result = []
     for block in modulestore().get_items(course_key, qualifiers={'name': block_ids}):
-        milestone = milestones_by_block_id.get(block.location.block_id)
-        if milestone:
-            milestone['block_display_name'] = block.display_name
-            milestone['block_usage_key'] = str(block.location)
-            result.append(milestone)
+        # Only include subsections (sequential blocks) as prerequisites for get_prerequisites
+        if block.location.block_type == 'sequential':
+            milestone = milestones_by_block_id.get(block.location.block_id)
+            if milestone:
+                milestone['block_display_name'] = block.display_name
+                milestone['block_usage_key'] = str(block.location)
+                milestone['block_type'] = block.location.block_type  # Add block type info
+                result.append(milestone)
+    return result
 
+
+def get_unit_prerequisites(course_key):
+    """
+    Find all the gating milestones associated with units (vertical blocks) in a course.
+
+    Arguments:
+        course_key (str|CourseKey): The course key
+
+    Returns:
+        list: A list of dicts containing the milestone and associated XBlock info for units only
+    """
+    course_content_milestones = find_gating_milestones(course_key)
+
+    milestones_by_block_id = {}
+    block_ids = []
+    for milestone in course_content_milestones:
+        prereq_content_key = _get_gating_block_id(milestone)
+        block_id = UsageKey.from_string(prereq_content_key).block_id
+        block_ids.append(block_id)
+        milestones_by_block_id[block_id] = milestone
+
+    result = []
+    for block in modulestore().get_items(course_key, qualifiers={'name': block_ids}):
+        # Only include units (vertical blocks) as prerequisites
+        if block.location.block_type == 'vertical':
+            milestone = milestones_by_block_id.get(block.location.block_id)
+            if milestone:
+                milestone['block_display_name'] = block.display_name
+                milestone['block_usage_key'] = str(block.location)
+                milestone['block_type'] = block.location.block_type  # Add block type info
+                result.append(milestone)
     return result
 
 
@@ -312,6 +370,38 @@ def get_gated_content(course, user):
                 {'id': user.id}
             )
         ]
+
+
+@unit_gating_enabled(default=[])
+def get_unit_gated_content(course, user):
+    """
+    Returns the unfulfilled unit gated content usage keys in the given course.
+
+    Arguments:
+        course (CourseBlock): The course
+        user (User): The user
+
+    Returns:
+        list: The list of unit gated content usage keys for the given course
+    """
+    if _has_access_to_course(user, 'staff', course.id):
+        return []
+    else:
+        # Get the unfulfilled unit gating milestones for this course, for this user
+        # Filter for unit-level content only
+        gated_content = []
+        for milestone in find_gating_milestones(course.id, None, 'requires', {'id': user.id}):
+            content_id = milestone['content_id']
+            try:
+                usage_key = UsageKey.from_string(content_id)
+                store = modulestore()
+                block = store.get_item(usage_key)
+                # Only include unit-level content
+                if getattr(block, 'category', None) == 'vertical':
+                    gated_content.append(content_id)
+            except (ItemNotFoundError, AttributeError):
+                continue
+        return gated_content
 
 
 def is_gate_fulfilled(course_key, gating_content_key, user_id):
@@ -492,6 +582,72 @@ def get_subsection_completion_percentage(subsection_usage_key, user):
     return subsection_completion_percentage
 
 
+def get_unit_grade_percentage(unit_usage_key, user):
+    """
+    Computes grade percentage for a unit in a given course for a user
+
+    Arguments:
+        unit_usage_key: key of unit
+        user: The user whose grade needs to be computed
+
+    Returns:
+        User's grade percentage for given unit
+    """
+    try:
+        unit_structure = get_course_blocks(user, unit_usage_key)
+        if any(unit_structure):
+            unit_grade_factory = SubsectionGradeFactory(user, course_structure=unit_structure)
+            if unit_usage_key in unit_structure:
+                unit_grade = unit_grade_factory.update(unit_structure[unit_usage_key])
+                return _get_unit_percentage(unit_grade)
+    except ItemNotFoundError as err:
+        log.warning("Could not find course_block for unit=%s error=%s", unit_usage_key, err)
+    return 0.0
+
+
+def get_unit_completion_percentage(unit_usage_key, user):
+    """
+    Computes completion percentage for a unit in a given course for a user
+    Arguments:
+        unit_usage_key: key of unit
+        user: The user whose completion percentage needs to be computed
+    Returns:
+        User's completion percentage for given unit
+    """
+    unit_completion_percentage = 0.0
+    try:
+        unit_structure = get_course_blocks(user, unit_usage_key)
+        if any(unit_structure):
+            completable_blocks = []
+            for block in unit_structure:
+                completion_mode = unit_structure.get_xblock_field(
+                    block, 'completion_mode'
+                )
+
+                #  always exclude html blocks (in addition to EXCLUDED blocks) for gating calculations
+                #  See https://openedx.atlassian.net/browse/WL-1798
+                if completion_mode not in (CompletionMode.AGGREGATOR, CompletionMode.EXCLUDED) \
+                        and not block.block_type == 'html':
+                    completable_blocks.append(block)
+
+            if not completable_blocks:
+                return 100
+            unit_completion_total = 0
+            course_key = unit_usage_key.course_key
+            course_block_completions = BlockCompletion.get_learning_context_completions(user, course_key)
+            for block in completable_blocks:
+                if course_block_completions.get(block):
+                    unit_completion_total += course_block_completions.get(block)
+            unit_completion_percentage = min(
+                100 * (unit_completion_total / float(len(completable_blocks))), 100
+            )
+
+    except ItemNotFoundError as err:
+        log.warning("Could not find course_block for unit=%s error=%s", unit_usage_key, err)
+
+    return unit_completion_percentage
+
+
 def _get_minimum_required_percentage(milestone):
     """
     Returns the minimum score and minimum completion percentage requirement for the given milestone.
@@ -523,3 +679,10 @@ def _get_subsection_percentage(subsection_grade):
     Returns the percentage value of the given subsection_grade.
     """
     return subsection_grade.percent_graded * 100.0
+
+
+def _get_unit_percentage(unit_grade):
+    """
+    Returns the percentage value of the given unit_grade.
+    """
+    return unit_grade.percent_graded * 100.0

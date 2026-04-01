@@ -42,6 +42,34 @@ def evaluate_subsection_completion_milestones(**kwargs):
     task_evaluate_subsection_completion_milestones.delay(course_id, block_id, user_id)
 
 
+@receiver(models.signals.post_save, sender=BlockCompletion)
+def evaluate_unit_completion_milestones(**kwargs):
+    """
+    Receives the BlockCompletion signal and triggers the
+    evaluation of unit-level milestone relationships.
+    """
+    instance = kwargs['instance']
+    course_id = str(instance.context_key)
+    if not instance.context_key.is_course:
+        return  # Content in a library or some other thing that doesn't support milestones
+
+    # Check if this is a unit completion
+    from xmodule.modulestore.django import modulestore
+    store = modulestore()
+    try:
+        block = store.get_item(instance.block_key)
+        if getattr(block, 'category', None) == 'vertical':
+            # This is a unit, evaluate unit-level prerequisites
+            from lms.djangoapps.gating.tasks import task_evaluate_unit_completion_milestones
+            task_evaluate_unit_completion_milestones.delay(course_id, str(instance.block_key), instance.user_id)
+    except modulestore.exceptions.ItemNotFoundError:
+        # If we can't get the block, skip unit evaluation
+        pass
+    except AttributeError:
+        # If we can't determine the block's category, skip unit evaluation
+        pass
+
+
 @receiver(COURSE_GRADE_CHANGED)
 def evaluate_course_gated_milestones(**kwargs):
     """

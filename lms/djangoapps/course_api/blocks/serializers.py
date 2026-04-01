@@ -54,6 +54,7 @@ SUPPORTED_FIELDS = [
     SupportedFieldType('start'),
     SupportedFieldType('due'),
     SupportedFieldType('contains_gated_content'),
+    SupportedFieldType('gated_content'),
     SupportedFieldType('has_score'),
     SupportedFieldType('has_scheduled_content'),
     SupportedFieldType('weight'),
@@ -116,6 +117,7 @@ FIELDS_ALLOWED_IN_AUTH_DENIED_CONTENT = [
     "authorization_denial_reason",
     "authorization_denial_message",
     'contains_gated_content',
+    'gated_content',
 ]
 
 

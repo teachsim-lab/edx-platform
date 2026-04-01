@@ -952,6 +952,17 @@ class CourseFields:  # lint-amnesty, pylint: disable=missing-class-docstring
         scope=Scope.settings
     )
 
+    enable_unit_gating = Boolean(
+        display_name=_("Enable Unit Prerequisites"),
+        help=_(
+            "Enter true or false. If this value is true, you can hide a "
+            "unit until learners earn a minimum score in another, "
+            "prerequisite unit."
+        ),
+        default=False,
+        scope=Scope.settings
+    )
+
     learning_info = List(
         display_name=_("Course Learning Information"),
         help=_("Specify what student can learn from the course."),

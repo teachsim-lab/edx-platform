@@ -8,11 +8,9 @@ import logging
 from celery import shared_task
 from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
 from edx_django_utils.monitoring import set_code_owner_attribute
-from opaque_keys.edx.keys import CourseKey, UsageKey
+from opaque_keys.edx.keys import UsageKey
 
-from lms.djangoapps.course_blocks.api import get_course_blocks
-from lms.djangoapps.gating import api as gating_api
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.lib.gating import api as gating_api
 
 log = logging.getLogger(__name__)
 
@@ -21,34 +19,72 @@ log = logging.getLogger(__name__)
 @set_code_owner_attribute
 def task_evaluate_subsection_completion_milestones(course_id, block_id, user_id):
     """
-    Updates users' milestones related to completion of a subsection.
-     Args:
-        course_id(str): Course id which triggered a completion event
-        block_id(str): Id of the completed block
-        user_id(int): Id of the user who completed a block
+    Evaluates gating milestone relationships attached to the given subsection.
+
+    Arguments:
+        course_id (str): The course key
+        block_id (str): The subsection block usage key
+        user_id (int): The id of the user
+
+    Returns:
+        None
     """
-    store = modulestore()
-    course_key = CourseKey.from_string(course_id)
-    with store.bulk_operations(course_key):
-        course = store.get_course(course_key)
-        if not course or not course.enable_subsection_gating:
-            log.debug(
-                "Gating: ignoring evaluation of completion milestone because it disabled for course [%s]", course_id
-            )
-        else:
-            try:
-                user = User.objects.get(id=user_id)
-                course_structure = get_course_blocks(user, store.make_course_usage_key(course_key))
-                completed_block_usage_key = UsageKey.from_string(block_id).map_into_course(course.id)
-                subsection_block = _get_subsection_of_block(completed_block_usage_key, course_structure)
-                subsection = course_structure[subsection_block]
-                log.debug(
-                    "Gating: Evaluating completion milestone for subsection [%s] and user [%s]",
-                    str(subsection.location), user.id
+    try:
+        user = User.objects.get(id=user_id)
+        usage_key = UsageKey.from_string(block_id).map_into_course(course_id)
+        gating_api.evaluate_prerequisite(
+            usage_key, user
+        )
+    except (User.DoesNotExist, gating_api.GatingValidationError) as exc:
+        log.error(
+            "Failed to evaluate gating milestones for course %s, block %s, user %s: %s",
+            course_id, block_id, user_id, exc
+        )
+
+
+@shared_task
+def task_evaluate_unit_completion_milestones(course_id, block_id, user_id):
+    """
+    Evaluates unit-level gating milestone relationships attached to the given unit.
+
+    Arguments:
+        course_id (str): The course key
+        block_id (str): The unit block usage key
+        user_id (int): The id of the user
+
+    Returns:
+        None
+    """
+    try:
+        user = User.objects.get(id=user_id)
+        usage_key = UsageKey.from_string(block_id).map_into_course(course_id)
+
+        # Get the course to check if unit gating is enabled
+        from xmodule.modulestore.django import modulestore
+        store = modulestore()
+        course = store.get_course(usage_key.course_key)
+
+        if getattr(course, 'enable_unit_gating', False):
+            # Create a mock unit grade object for evaluation
+            from lms.djangoapps.course_blocks.api import get_course_blocks
+
+            unit_structure = get_course_blocks(user, usage_key)
+            if any(unit_structure) and usage_key in unit_structure:
+                from lms.djangoapps.grades.api import SubsectionGradeFactory
+                unit_grade_factory = SubsectionGradeFactory(
+                    user, course_structure=unit_structure
                 )
-                gating_api.evaluate_prerequisite(course, subsection, user)
-            except KeyError:
-                log.error("Gating: Given prerequisite subsection [%s] not found in course structure", block_id)
+                unit_grade = unit_grade_factory.update(
+                    unit_structure[usage_key]
+                )
+                gating_api.evaluate_unit_prerequisite(
+                    course, unit_grade, user
+                )
+    except (User.DoesNotExist, gating_api.GatingValidationError, KeyError, ValueError) as exc:
+        log.error(
+            "Failed to evaluate unit gating milestones for course %s, block %s, user %s: %s",
+            course_id, block_id, user_id, exc
+        )
 
 
 def _get_subsection_of_block(usage_key, block_structure):
