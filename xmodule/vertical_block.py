@@ -14,13 +14,12 @@ from lxml import etree
 from openedx_filters.learning.filters import VerticalBlockChildRenderStarted, VerticalBlockRenderCompleted
 from web_fragments.fragment import Fragment
 from xblock.core import XBlock  # lint-amnesty, pylint: disable=wrong-import-order
-from xblock.fields import Boolean, Integer, List, Scope, String
+from xblock.fields import Boolean, Integer, Scope, String
 
 from xmodule.mako_block import MakoTemplateBlockBase
 from xmodule.progress import Progress
 from xmodule.seq_block import SequenceFields
 from xmodule.studio_editable import StudioEditableBlock
-from xmodule.modulestore.inheritance import own_metadata
 from common.djangoapps.xblock_django.constants import ATTR_KEY_USER_ID, ATTR_KEY_USER_IS_STAFF
 from xmodule.util.builtin_assets import add_webpack_js_to_fragment
 from xmodule.util.misc import is_xblock_an_assignment
@@ -342,16 +341,18 @@ class VerticalBlock(
         # Check if user is staff
         current_user = self.runtime.service(self, 'user').get_current_user()
         user_is_staff = current_user.opt_attrs.get(ATTR_KEY_USER_IS_STAFF)
-        
-        prereq_met, prereq_meta_info = gating_api.compute_is_prereq_met(self.location, current_user.opt_attrs.get(ATTR_KEY_USER_ID), recalc_on_unmet=True)
-        
+
+        prereq_met, prereq_meta_info = gating_api.compute_is_prereq_met(
+            self.location, current_user.opt_attrs.get(ATTR_KEY_USER_ID), recalc_on_unmet=True
+        )
+
         gated_content = {
             'prereq_id': None,
             'prereq_url': None,
             'prereq_section_name': None,
             'gated_section_name': self.display_name,
         }
-        
+
         if not prereq_met:
             # Check if user is staff. If so, bypass gating.
             if user_is_staff:
@@ -363,8 +364,17 @@ class VerticalBlock(
                 gated_content['prereq_id'] = prereq_meta_info['id']
         else:
             gated_content['gated'] = False
-            
+
         return gated_content
+
+    def get_unit_gated_content_info(self, user, context=None):
+        """
+        Public method to get unit gating information.
+
+        This is a wrapper around the protected _get_unit_gated_content_info method
+        to allow external access from other modules.
+        """
+        return self._get_unit_gated_content_info(user, context)
 
     def index_dictionary(self):
         """

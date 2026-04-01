@@ -8,11 +8,9 @@ import logging
 from celery import shared_task
 from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
 from edx_django_utils.monitoring import set_code_owner_attribute
-from opaque_keys.edx.keys import CourseKey, UsageKey
+from opaque_keys.edx.keys import UsageKey
 
-from lms.djangoapps.course_blocks.api import get_course_blocks
-from lms.djangoapps.gating import api as gating_api
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.lib.gating import api as gating_api
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +32,14 @@ def task_evaluate_subsection_completion_milestones(course_id, block_id, user_id)
     try:
         user = User.objects.get(id=user_id)
         usage_key = UsageKey.from_string(block_id).map_into_course(course_id)
-        gating_api.evaluate_prerequisite(usage_key, user)
-    except Exception as exc:
-        log.error("Failed to evaluate gating milestones for course %s, block %s, user %s: %s", course_id, block_id, user_id, exc)
+        gating_api.evaluate_prerequisite(
+            usage_key, user
+        )
+    except (User.DoesNotExist, gating_api.GatingValidationError) as exc:
+        log.error(
+            "Failed to evaluate gating milestones for course %s, block %s, user %s: %s",
+            course_id, block_id, user_id, exc
+        )
 
 
 @shared_task
@@ -55,24 +58,33 @@ def task_evaluate_unit_completion_milestones(course_id, block_id, user_id):
     try:
         user = User.objects.get(id=user_id)
         usage_key = UsageKey.from_string(block_id).map_into_course(course_id)
-        
+
         # Get the course to check if unit gating is enabled
         from xmodule.modulestore.django import modulestore
         store = modulestore()
         course = store.get_course(usage_key.course_key)
-        
+
         if getattr(course, 'enable_unit_gating', False):
             # Create a mock unit grade object for evaluation
-            from lms.djangoapps.grades.api import SubsectionGradeFactory
             from lms.djangoapps.course_blocks.api import get_course_blocks
-            
+
             unit_structure = get_course_blocks(user, usage_key)
             if any(unit_structure) and usage_key in unit_structure:
-                unit_grade_factory = SubsectionGradeFactory(user, course_structure=unit_structure)
-                unit_grade = unit_grade_factory.update(unit_structure[usage_key])
-                gating_api.evaluate_unit_prerequisite(course, unit_grade, user)
-    except Exception as exc:
-        log.error("Failed to evaluate unit gating milestones for course %s, block %s, user %s: %s", course_id, block_id, user_id, exc)
+                from lms.djangoapps.grades.api import SubsectionGradeFactory
+                unit_grade_factory = SubsectionGradeFactory(
+                    user, course_structure=unit_structure
+                )
+                unit_grade = unit_grade_factory.update(
+                    unit_structure[usage_key]
+                )
+                gating_api.evaluate_unit_prerequisite(
+                    course, unit_grade, user
+                )
+    except (User.DoesNotExist, gating_api.GatingValidationError, KeyError, ValueError) as exc:
+        log.error(
+            "Failed to evaluate unit gating milestones for course %s, block %s, user %s: %s",
+            course_id, block_id, user_id, exc
+        )
 
 
 def _get_subsection_of_block(usage_key, block_structure):

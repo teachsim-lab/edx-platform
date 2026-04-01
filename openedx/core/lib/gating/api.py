@@ -197,7 +197,7 @@ def get_prerequisites(course_key):
 def get_unit_prerequisites(course_key):
     """
     Find all the gating milestones associated with units (vertical blocks) in a course.
-    
+
     Arguments:
         course_key (str|CourseKey): The course key
 

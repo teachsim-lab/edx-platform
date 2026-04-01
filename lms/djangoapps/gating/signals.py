@@ -52,7 +52,7 @@ def evaluate_unit_completion_milestones(**kwargs):
     course_id = str(instance.context_key)
     if not instance.context_key.is_course:
         return  # Content in a library or some other thing that doesn't support milestones
-    
+
     # Check if this is a unit completion
     from xmodule.modulestore.django import modulestore
     store = modulestore()
@@ -62,8 +62,11 @@ def evaluate_unit_completion_milestones(**kwargs):
             # This is a unit, evaluate unit-level prerequisites
             from lms.djangoapps.gating.tasks import task_evaluate_unit_completion_milestones
             task_evaluate_unit_completion_milestones.delay(course_id, str(instance.block_key), instance.user_id)
-    except Exception:
-        # If we can't get the block or determine its category, skip unit evaluation
+    except modulestore.exceptions.ItemNotFoundError:
+        # If we can't get the block, skip unit evaluation
+        pass
+    except AttributeError:
+        # If we can't determine the block's category, skip unit evaluation
         pass
 
 

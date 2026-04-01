@@ -959,6 +959,14 @@ def get_block_info(
 
 def _get_gating_info(course, xblock):
     """
+    Get gating information for an XBlock.
+
+    Args:
+        course: The course object
+        xblock: The XBlock to get gating info for
+
+    Returns:
+        dict: Gating information
     """
     info = {}
     if xblock.category == "sequential" and course.enable_subsection_gating:
