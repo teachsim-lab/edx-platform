@@ -503,6 +503,17 @@
     .accomplishment-type-symbol {
       display: none;
     }
+
+    // TeachSim customization: upstream hides the signatory image for
+    // honor-mode certs (only "verified" certs get it, above) - but
+    // TeachSim only issues honor-mode certificates, so hiding it here
+    // would mean no signature ever shows at all. Sizing/positioning
+    // already comes from the base (non-honor-specific) rules elsewhere
+    // in this file; this only re-enables display for this one element,
+    // leaving the achievement-type seal above still hidden.
+    .accomplishment-signatories .signatory-signature {
+      display: block;
+    }
   }
 }
 

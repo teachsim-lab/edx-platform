@@ -111,6 +111,19 @@ course_mode_class = course_mode if course_mode else ''
                     <dt class="label copy copy-meta">${certificate_date_issued_title}</dt>
                     <dd class="value copy copy-base">${certificate_date_issued}</dd>
                 </dl>
+                ## TeachSim customization: share_url is the same public,
+                ## unauthenticated verification link already computed for the
+                ## social-share buttons/Open Graph tag elsewhere on this page
+                ## (see _update_social_context in webview.py) - it was never
+                ## actually shown to the viewer anywhere, so there was no way
+                ## to grab a link to verify this specific certificate short of
+                ## copying the current page's own address bar URL.
+                % if share_url:
+                <dl class="metadata accomplishment-verify">
+                    <dt class="label copy copy-meta">${_("Verify this certificate")}:</dt>
+                    <dd class="value copy copy-base"><a href="${share_url}">${share_url}</a></dd>
+                </dl>
+                % endif
             </div>
         </div>
     </div>
