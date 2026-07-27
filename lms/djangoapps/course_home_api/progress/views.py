@@ -248,6 +248,14 @@ class ProgressTabView(RetrieveAPIView):
         data = {
             'access_expiration': access_expiration,
             'certificate_data': get_cert_data(student, course, enrollment_mode, course_grade),
+            # TeachSim customization: course-level "does this course have an
+            # active certificate configured" (Studio's Activate/Deactivate
+            # toggle), independent of this learner's own progress/pass
+            # status - certificate_data above is null both when there's no
+            # active certificate AND when this learner just hasn't earned
+            # one yet, so it can't be used alone to decide whether to show
+            # grade/certificate messaging to a learner who hasn't passed.
+            'has_active_certificate': course_overview.has_any_active_web_certificate,
             'completion_summary': get_course_blocks_completion_summary(course_key, student),
             'course_grade': course_grade,
             'credit_course_requirements': credit_course_requirements(course_key, student),

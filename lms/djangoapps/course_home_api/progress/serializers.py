@@ -133,6 +133,9 @@ class ProgressTabSerializer(VerifiedModeSerializer):
     """
     access_expiration = serializers.DictField()
     certificate_data = CertificateDataSerializer()
+    # TeachSim customization: see the has_active_certificate comment in
+    # views.py - a course-level flag, not per-learner like certificate_data.
+    has_active_certificate = serializers.BooleanField()
     completion_summary = serializers.DictField()
     course_grade = CourseGradeSerializer()
     credit_course_requirements = serializers.DictField()

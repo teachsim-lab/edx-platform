@@ -989,6 +989,13 @@ def create_new_course_in_store(store, user, org, number, run, fields):
         'language': getattr(settings, 'DEFAULT_COURSE_LANGUAGE', 'en'),
         'cert_html_view_enabled': True,
     })
+    # TeachSim customization: every new course gets these advanced modules
+    # enabled by default (e.g. the Rater Certification XBlock), instead of
+    # instructors needing to add them manually in Advanced Settings every
+    # time. setdefault (not update) so a caller that already specified
+    # advanced_modules explicitly (e.g. command-line course creation) is
+    # respected rather than overwritten.
+    fields.setdefault('advanced_modules', getattr(settings, 'DEFAULT_ADVANCED_MODULES', []))
 
     with modulestore().default_store(store):
         # Creating the course raises DuplicateCourseError if an existing course with this org/name is found

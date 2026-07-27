@@ -292,6 +292,13 @@ class CertificateSerializer(serializers.Serializer):
     isEarned = serializers.SerializerMethodField()
     isDownloadable = serializers.SerializerMethodField()
     certPreviewUrl = serializers.SerializerMethodField()
+    # TeachSim customization: course-level "does this course have an active
+    # certificate configured" (Studio's Activate/Deactivate toggle),
+    # independent of this learner's own progress - isEarned/isDownloadable
+    # above are only ever true once a specific learner has actually earned
+    # one, so they can't be used alone to decide whether to show
+    # grade/certificate messaging to a learner who hasn't passed yet.
+    isCertActive = serializers.SerializerMethodField()
 
     def get_cert_info(self, enrollment):
         """Utility to grab certificate info for this enrollment or empty object"""
@@ -337,6 +344,10 @@ class CertificateSerializer(serializers.Serializer):
             return None
         else:
             return cert_info.get("cert_web_view_url")
+
+    def get_isCertActive(self, enrollment):
+        """Whether this course has an active certificate configured at all (see class docstring)"""
+        return enrollment.course_overview.has_any_active_web_certificate
 
 
 class AvailableEntitlementSessionSerializer(serializers.Serializer):
